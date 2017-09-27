@@ -1,0 +1,9 @@
+#!/bin/bash
+# Find the directory that contains the physical script file
+REALDIR=$(readlink "$0" | xargs dirname)
+
+# Activate the python virtual environment
+#source $REALDIR/modules/bin/activate
+
+# Set flask application python script target and start on 5001
+python $REALDIR/hyperload.py $1 $2
