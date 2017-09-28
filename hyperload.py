@@ -50,7 +50,7 @@ DESCRIPTION
 sDeviceFile = "/dev/ttyUSB0"   # Device File Path
 sDeviceBaud = 1000000          # Suitable Device Baud Rate
 sGenerateBinary = "y"  # "y" - Yes | "n" - No
-sHexFilePath = "./bin/HelloWorld/HelloWorld.hex"
+sHexFilePath = ""
 ###############################################################################
 
 #### LOGGING OPTIONS ####
@@ -221,7 +221,7 @@ def getChecksum(blocks):
 if (len(sys.argv) == 3):
    sDeviceFile  = sys.argv[1]
    sHexFilePath = sys.argv[2]
-elif(len(sys.argv) != 1):
+else:
    print(helpMessage)
    sys.exit()
 
