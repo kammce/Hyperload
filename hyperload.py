@@ -265,6 +265,11 @@ sPort.flush()
 sPort.rts = False
 sPort.dtr = False
 
+def unichar(i):
+    try:
+        return unichr(i)
+    except ValueError:
+        return struct.pack('i', i).decode('utf-32')
 
 # Read first byte from SJOne buffer
 msg = sPort.read(1)
@@ -408,15 +413,15 @@ if msg is ByteReference[0]:
                         else:
                             bar_len = 25
                             filled_len = int(round(bar_len * (blockCount+1) / float(totalBlocks)))
-                            #unichr(0x25FE)
+                            #unichar(0x25FE)
                             percents = round(100.0 * (blockCount+1) / float(totalBlocks), 1)
 
-                            # bar = ' ' * (filled_len-1) + unichr(0x15E7) + unichr(0x2219) * (bar_len - filled_len)
-                            bar = ' ' * (filled_len-1) + unichr(0x15E7) + unichr(0x2219) * (bar_len - filled_len)
+                            # bar = ' ' * (filled_len-1) + unichar(0x15E7) + unichar(0x2219) * (bar_len - filled_len)
+                            bar = ' ' * (filled_len-1) + unichar(0x15E7) + unichar(0x2219) * (bar_len - filled_len)
 
                             suffix = "Block # {0}/{1} flashed!".format(blockCount+1, int(totalBlocks))
 
-                            sys.stdout.write('[%s] %s%% %s  ... %s\r' % (bar, percents, unichr(selected_animation[blockCount % len(selected_animation)]), suffix))
+                            sys.stdout.write('[%s] %s%% %s  ... %s\r' % (bar, percents, unichar(selected_animation[blockCount % len(selected_animation)]), suffix))
                             sys.stdout.flush()
 
                             blockCount = blockCount + 1
