@@ -1,8 +1,0 @@
-#!/bin/bash
-
-# Find the directory that contains the physical script file
-REALDIR=$(readlink -f "$0" | xargs dirname)
-# Activate the python virtual environment
-source $REALDIR/modules/bin/activate
-# Start Hyperloader
-python $REALDIR/hyperload.py $1 $2
