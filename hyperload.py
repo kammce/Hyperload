@@ -48,13 +48,13 @@ DESCRIPTION
 ################# CONFIGURATION FOR pyFlash - Hyperload ######################
 ###############################################################################
 sDeviceFile = "/dev/ttyUSB0"   # Device File Path
-sDeviceBaud = 1000000          # Suitable Device Baud Rate
+sDeviceBaud = 38400           # Suitable Device Baud Rate
 sGenerateBinary = "y"  # "y" - Yes | "n" - No
 sHexFilePath = ""
 ###############################################################################
 
 #### LOGGING OPTIONS ####
-PYFLASH_DEBUG_LOG = "no"  # "yes" - Debug Version. "no" - Release Version
+PYFLASH_DEBUG_LOG = "yes"  # "yes" - Debug Version. "no" - Release Version
 #########################
 
 if PYFLASH_DEBUG_LOG == "yes":
@@ -89,9 +89,9 @@ ToolInfo = "Flashing Tool for SJOne"
 BaudList = [4800, 9600, 19200, 38400]
 ControlWordList = b'\x80\xf8\xfe\xff'
 SpecialChar = {'Dollar': '$', 'OK': '!', 'NextLine': '\n', 'STAR': '*'}
-sCPUSpeed = 48000000
+sCPUSpeed = 12000000
 sInitialDeviceBaud = 38400
-
+# 38400
 ByteReference = b'\xff\x55\xaa'
 
 ## Animation stuff
@@ -257,7 +257,7 @@ sPort = serial.Serial(
 # Put device into reset state
 sPort.rts = True
 sPort.dtr = True
-time.sleep(0.5)
+time.sleep(0.1)
 # Remove reset signal to allow device to boot up
 sPort.reset_input_buffer()
 sPort.reset_output_buffer()
@@ -288,7 +288,7 @@ if msg is ByteReference[0]:
 
         lControlWordInteger = getControlWord(sDeviceBaud, sCPUSpeed)
         lControlWordPacked = struct.pack('<i', lControlWordInteger)
-
+        logging.debug(bytearray(lControlWordPacked))
         msg = sPort.write(bytearray(lControlWordPacked))
 
         if msg != 4:
@@ -300,6 +300,7 @@ if msg is ByteReference[0]:
 
             if msg != lControlWordPacked[0]:
                 logging.error("Error - Failed to receive Control Word Ack")
+                logging.debug("Returned message = %s::0x%02X" % (msg, ord(msg)))
             else:
                 logging.debug("Ack from SJOne received!")
 
@@ -318,6 +319,7 @@ if msg is ByteReference[0]:
 
                 if msg != SpecialChar['Dollar']:
                     logging.error("Failed to read CPU Description String")
+                    logging.debug("Returned message = %s::0x%02X" % (msg, ord(msg)))
                 else:
                     logging.debug("Reading CPU Desc String..")
 
@@ -339,6 +341,7 @@ if msg is ByteReference[0]:
 
                     if msg != SpecialChar['OK']:
                         logging.error("Error - Failed to Receive OK")
+                        logging.debug("Returned message = %s::0x%02X" % (msg, ord(msg)))
                     else:
                         logging.debug("OK Received! Sending Block")
 
@@ -392,6 +395,8 @@ if msg is ByteReference[0]:
                             logging.error(
                                 "Error - Failed to sending Data Block Content")
                             break
+                        else:
+                            logging.debug("Size of Block Written = %d", msg)
 
                         checksum = bytearray(1)
 
@@ -401,7 +406,6 @@ if msg is ByteReference[0]:
                                       0], checksum[0])
 
                         msg = sPort.write(checksum)
-                        logging.debug("Size of Block Written = %d", msg)
 
                         if msg != 1:
                             logging.error("Error - Failed to send Entire Data Block")
@@ -410,6 +414,7 @@ if msg is ByteReference[0]:
                         if msg != SpecialChar['OK']:
                             logging.error(
                                 "Failed to Receive Ack.. Retrying #%d\n" % int(blockCount))
+                            logging.debug("Returned message = %s::0x%02X" % (msg, ord(msg)))
                         else:
                             bar_len = 25
                             filled_len = int(round(bar_len * (blockCount+1) / float(totalBlocks)))
