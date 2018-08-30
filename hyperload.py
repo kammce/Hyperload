@@ -48,8 +48,8 @@ DESCRIPTION
 ################# CONFIGURATION FOR pyFlash - Hyperload ######################
 ###############################################################################
 sDeviceFile = "/dev/ttyUSB0"   # Device File Path
-sDeviceBaud = 38400           # Suitable Device Baud Rate
-sGenerateBinary = "y"  # "y" - Yes | "n" - No
+sDeviceBaud = 115200           # Suitable Device Baud Rate
+sGenerateBinary = "n"  # "y" - Yes | "n" - No
 sHexFilePath = ""
 ###############################################################################
 
@@ -264,6 +264,7 @@ sPort.reset_output_buffer()
 sPort.flush()
 sPort.rts = False
 sPort.dtr = False
+time.sleep(0.01)
 
 def unichar(i):
     try:
@@ -310,7 +311,6 @@ if msg is ByteReference[0]:
                         "Requested Baudrate different from Default. Changing Baudrate..")
 
                     sPort.baudrate = sDeviceBaud
-
                 else:
                     logging.debug("BaudRate same as Default")
 
@@ -320,6 +320,7 @@ if msg is ByteReference[0]:
                 if msg != SpecialChar['Dollar']:
                     logging.error("Failed to read CPU Description String")
                     logging.debug("Returned message = %s::0x%02X" % (msg, ord(msg)))
+                    quit()
                 else:
                     logging.debug("Reading CPU Desc String..")
 
@@ -342,6 +343,7 @@ if msg is ByteReference[0]:
                     if msg != SpecialChar['OK']:
                         logging.error("Error - Failed to Receive OK")
                         logging.debug("Returned message = %s::0x%02X" % (msg, ord(msg)))
+                        quit()
                     else:
                         logging.debug("OK Received! Sending Block")
 
@@ -384,6 +386,8 @@ if msg is ByteReference[0]:
                         if msg != 1:
                             logging.error("Error in Sending BlockCountHiAddr")
 
+                        logging.debug("0x%02X:0x%02X" % (blockCount >> 8, blockCount & 0xFF))
+
                         logging.debug("BlockCounts = %d", blockCount)
 
                         if sendDummy == False:
@@ -413,8 +417,8 @@ if msg is ByteReference[0]:
                         msg = sPort.read(1)
                         if msg != SpecialChar['OK']:
                             logging.error(
-                                "Failed to Receive Ack.. Retrying #%d\n" % int(blockCount))
-                            logging.debug("Returned message = %s::0x%02X" % (msg, ord(msg)))
+                                "Failed to Receive Ack.. Retrying #%d" % int(blockCount))
+                            logging.debug("Returned message = %s::0x%02X\n" % (msg, ord(msg)))
                         else:
                             bar_len = 25
                             filled_len = int(round(bar_len * (blockCount+1) / float(totalBlocks)))
@@ -449,10 +453,13 @@ if msg is ByteReference[0]:
                                 "Error in Sending End Of Transaction Signal")
 
                         msg = sPort.read(1)
-                        logging.debug("Received Ack = " + str(msg))
+                        logging.debug("Received Ack = %s::0x%02X\n" % (msg, ord(msg)))
 
                         if msg != SpecialChar['STAR']:
                             logging.error("Error - Final Ack Not Received")
+                            while 1:
+                                msg = sPort.read(1)
+                                sys.stdout.write(msg)
 
 else:
     logging.error("Timed Out!")
