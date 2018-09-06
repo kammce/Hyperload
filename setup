@@ -7,6 +7,6 @@ virtualenv -p `which python2.7` modules
 # Activate virtual environment
 source modules/bin/activate
 # Install all requirements within requirements.txt file
-pip2.7 install -r ./requirements.txt
+python2.7 -m pip install -r ./requirements.txt
 # Deactivate virtual environment
 deactivate
