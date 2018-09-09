@@ -54,7 +54,7 @@ sHexFilePath = ""
 ###############################################################################
 
 #### LOGGING OPTIONS ####
-PYFLASH_DEBUG_LOG = "yes"  # "yes" - Debug Version. "no" - Release Version
+PYFLASH_DEBUG_LOG = "no"  # "yes" - Debug Version. "no" - Release Version
 #########################
 
 if PYFLASH_DEBUG_LOG == "yes":
@@ -89,7 +89,7 @@ ToolInfo = "Flashing Tool for SJOne"
 BaudList = [4800, 9600, 19200, 38400]
 ControlWordList = b'\x80\xf8\xfe\xff'
 SpecialChar = {'Dollar': '$', 'OK': '!', 'NextLine': '\n', 'STAR': '*'}
-sCPUSpeed = 12000000
+sCPUSpeed = 48000000
 sInitialDeviceBaud = 38400
 # 38400
 ByteReference = b'\xff\x55\xaa'
