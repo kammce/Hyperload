@@ -1,27 +1,20 @@
-#!/usr/bin/env python
-
-# SJSU - AV #
-
-########
-# CHANGELOG:
-# 2016-02-15 : Working Skeleton for Flashing a Hex file to Hyperload comeplete!
-#
 from __future__ import division
-import serial
-import string
-import os
-import time
-import struct
-import binascii
-import math
-import serial.serialutil
-import logging
-import sys
+
+APPLICATION_VERSION = '1.2'
+
 import argparse
 import functools
+import logging
+import math
+import struct
+import sys
+import time
+
+import serial
+import serial.serialutil
+import serial.tools.list_ports as port_list
 from intelhex import IntelHex
 
-APPLICATION_VERSION = '1.1'
 TOOL_NAME = 'pyFLASH - HYPERLOAD'
 TOOL_INFO = 'Flashing Tool for devices running the HYPERLOAD protocol'
 INITIAL_DEVICE_BAUD = 38400
@@ -29,57 +22,57 @@ INITIAL_DEVICE_BAUD = 38400
 parser = argparse.ArgumentParser()
 
 parser.add_argument(
-  '-d',
-  '--device',
-  type=str,
-  required=True,
-  help='Path to serial device file. In linux the name should be '
-  'something similar to "/dev/ttyUSB0", WSL "/dev/ttyS0", and '
-  'Max OSX "/dev/tty-usbserial-AJ20A5".')
+    '-d',
+    '--device',
+    type=str,
+    default="",
+    help='Path to serial device file. In linux the name should be '
+    'something similar to "/dev/ttyUSB0", WSL "/dev/ttyS0", and '
+    'Max OSX "/dev/tty-usbserial-AJ20A5".')
 
 parser.add_argument(
-  '-b',
-  '--baud',
-  type=int,
-  help='bitrate/speed to send program over.',
-  default=38400,
-  choices=[
-    4800, 9600, 19200, 38400, 57600, 115200, 230400, 576000, 921600,
-    1000000, 1152000, 1500000, 2000000, 2500000, 3000000, 3500000, 4000000
-  ])
+    '-b',
+    '--baud',
+    type=int,
+    help='bitrate/speed to send program over.',
+    default=38400,
+    choices=[
+        4800, 9600, 19200, 38400, 57600, 115200, 230400, 576000, 921600,
+        1000000, 1152000, 1500000, 2000000, 2500000, 3000000, 3500000, 4000000
+    ])
 
 parser.add_argument(
-  '-c',
-  '--clockspeed',
-  type=int,
-  help='clock speed in Hz of processor during programming.',
-  default=48000000)
+    '-c',
+    '--clockspeed',
+    type=int,
+    help='clock speed in Hz of processor during programming.',
+    default=48000000)
 
 parser.add_argument(
-  '-v',
-  '--verbose',
-  help='Enable version debug message output.',
-  action='store_true')
+    '-v',
+    '--verbose',
+    help='Enable version debug message output.',
+    action='store_true')
 
 parser.add_argument(
-  '-a',
-  '--animation',
-  type=str,
-  help='Choose which animation you would like to see when programming :).',
-  choices=[
-    "clocks",
-    "circles",
-    "quadrants",
-    "trigrams",
-    "squarefills",
-    "spaces",
-    "braille",
-  ],
-  default="clocks")
+    '-a',
+    '--animation',
+    type=str,
+    help='Choose which animation you would like to see when programming :).',
+    choices=[
+        "clocks",
+        "circles",
+        "quadrants",
+        "trigrams",
+        "squarefills",
+        "spaces",
+        "braille",
+    ],
+    default="clocks")
 
 parser.add_argument(
-  'hexfile',
-  help='path to the firmware.hex file you want to program the board with.')
+    'binary',
+    help='path to the firmware.bin file you want to program the board with.')
 
 args = parser.parse_args()
 
@@ -88,128 +81,84 @@ if args.verbose:
 else:
   logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 
-# Things to Do:
-# 1. Display Platform Information                               [DONE]
-# 2. Enable a Debug/Release Switch                              [DONE]
-# 3. Create ~/.pyFlash and store last used options for Flashing [PEND]
-# 4. Handle Exceptions                                          [PEND]
-# 5. Ensure packing is done based on Endianness                 [PEND]
-# 6. Re-write program with classes using this as the backbone.  [PEND]
-# 7. Incorporate design decisions keeping the GUI in mind       [PEND]
-
-# Issues Faced
-# 1. Handling Bytes were hard - Use bytearray for most of the IO related functions. Difference between bytes and bytearray is that the latter is mutable.
-# Bytes are types that are not mutable. Any changes done on them will
-# cause a new alloc + concat and reassigning.
-
 # Global Defines
-
 SPECIAL_CHAR = {'Dollar': b'$', 'OK': b'!', 'NextLine': b'\n', 'STAR': b'*'}
-BYTE_REFERENCE = [0xFF, 0x55, 0xAA]
+HANDSHAKE_SEQUENCE = [
+    0xFF,  # Signature of Hyperload
+    0x55,  # Host -> Hyperload Request to flash device
+    0xAA  # Hyperload -> Host accept request to flash
+]
 
 ## Animation stuff
 ANIMATIONS = {
-  "circles": [0x25D0, 0x25D3, 0x25D1, 0x25D2],
-  "quadrants": [0x259F, 0x2599, 0x259B, 0x259C],
-  "trigrams": [0x2630, 0x2631, 0x2632, 0x2634],
-  "squarefills": [0x25E7, 0x25E9, 0x25E8, 0x25EA],
-  "spaces": [0x2008, 0x2008, 0x2008, 0x2008],
-  "clocks": [
-    0x1F55B, 0x1F550, 0x1F551, 0x1F552, 0x1F553, 0x1F554, 0x1F555, 0x1F556,
-    0x1F557, 0x1F558, 0x1F559, 0x1F55A
-  ],
-  "braille":
-  [0x2840, 0x2844, 0x2846, 0x2847, 0x2840, 0x28c7, 0x28e7, 0x28f7, 0x28fF],
+    "circles": [0x25D0, 0x25D3, 0x25D1, 0x25D2],
+    "quadrants": [0x259F, 0x2599, 0x259B, 0x259C],
+    "trigrams": [0x2630, 0x2631, 0x2632, 0x2634],
+    "squarefills": [0x25E7, 0x25E9, 0x25E8, 0x25EA],
+    "spaces": [0x2008, 0x2008, 0x2008, 0x2008],
+    "clocks": [
+        0x1F55B, 0x1F550, 0x1F551, 0x1F552, 0x1F553, 0x1F554, 0x1F555, 0x1F556,
+        0x1F557, 0x1F558, 0x1F559, 0x1F55A
+    ],
+    "braille":
+    [0x2840, 0x2844, 0x2846, 0x2847, 0x2840, 0x28c7, 0x28e7, 0x28f7, 0x28fF],
 }
 
-def printBytes(mymsg):
-
-  print('Type info = ' + (str)(type(mymsg)))
-
-  if (type(mymsg) == bytes) or (type(mymsg) == bytearray):
-    for x in mymsg:
-      print('0x{:x}'.format(x), )
-
-    print('')
-    print('Total Elements = ' + (str)(len(mymsg)))
-  elif (type(mymsg) == str):
-    printBytes(bytearray(mymsg))
-  elif type(mymsg) == int:
-    print('0x{:x}'.format(mymsg), )
-  else:
-    print(mymsg)
-  return
+VALID_SERIAL_PORT_DESCRIPTIONS = [
+    "CP2102N USB to UART Bridge Controller",  # SJ2 Rev 1.x
+    "FT232R USB UART",  # SJOne Rev 4 (and probably the rest too)
+    "FT231X USB UART",  # SJ2-Mini Rev 1
+    "n/a",  # Description of all serial ports on WSL
+    "USER SUPPLIED PORT",  # Description of a device port passed by --device
+]
 
 
-def getBoardParameters(descString):
-  boardParametersDict = {
-    'Board': '',
-    'BlockSize': '',
-    'BootloaderSize': '',
-    'FlashSize': ''
-  }
+def getBoardParameters(description_string):
   # Parsing String to obtain required Board Parameters
-  boardParametersList = descString.split(b':')
+  board_parameters_list = description_string.replace("\n", "").split(b':')
+  board_parameters_dict = {
+      'Board': board_parameters_list[0],
+      'BlockSize': board_parameters_list[1],
+      'BootloaderSize': (int(board_parameters_list[2]) * 2),
+      'FlashSize': board_parameters_list[3]
+  }
+  print("\n******* Board Information *******")
 
-  boardParametersDict['Board'] = boardParametersList[0]
-  boardParametersDict['BlockSize'] = boardParametersList[1]
-  boardParametersDict['BootloaderSize'] = (int(boardParametersList[2]) * 2)
-  boardParametersDict['FlashSize'] = boardParametersList[3]
+  board = (str)(board_parameters_dict['Board'])
+  print("Board              = " + board)
 
-  print("\n***** Board Information ********")
-  print("Board              = " + (str)(boardParametersDict['Board']))
-  print("Block (Chunk) Size = " + (str)(boardParametersDict['BlockSize']) +
-      " bytes")
-  print("Bootloader Size    = " +
-      (str)(boardParametersDict['BootloaderSize']) + " bytes")
-  print("Flash Size         = " + (str)(boardParametersDict['FlashSize']) +
-      " KBytes")
-  print("*********************************\n")
-  return boardParametersDict
+  block_chunk = (str)(board_parameters_dict['BlockSize']) + " bytes"
+  print("Block (Chunk) Size = " + block_chunk)
 
+  bootloader_size = (str)(board_parameters_dict['BootloaderSize']) + " bytes"
+  print("Bootloader Size    = " + bootloader_size)
 
-def printContent(lContent):
-  logging.debug("--------------------")
-  count = 0
-  totalCount = 0
-  for x in lContent:
-    print('{:2x}'.format(x))
-    if count >= 10:
-      print("\n")
-      count = 0
-    else:
-      count = count + 1
-    totalCount = totalCount + 1
+  flash_size = (str)(board_parameters_dict['FlashSize']) + " KB"
+  print("Flash Size         = " + flash_size)
 
-  logging.debug("\n--------------------")
-  logging.debug("Total Count = ", totalCount)
-  logging.debug("--------------------")
-  return
+  print("***********************************\n")
+  return board_parameters_dict
 
 
-def getControlWord(baudRate, cpuSpeed):
+def getControlWord(baud_rate, cpu_speed):
   logging.debug("Retrieving Control Word")
-  controlWord = ((cpuSpeed / (baudRate * 16)) - 1)
+  controlWord = ((cpu_speed / (baud_rate * 16)) - 1)
   return controlWord
 
 
-def getPageContent(bArray, blkCount, pageSize):
-  startOffset = blkCount * pageSize
-  endOffset = (startOffset + pageSize - 1)
-  lPageContent = bytearray(pageSize)
+def getPageContent(binary, current_block, page_size):
+  start_offset = current_block * page_size
+  end_offset = (start_offset + page_size - 1)
+  page_content = bytearray(page_size)
 
-  for x in range(0, pageSize):
-    lPageContent[x] = bArray[x + (blkCount * pageSize)]
+  for x in range(0, page_size):
+    page_content[x] = binary[x + (current_block * page_size)]
 
-  return lPageContent
+  return page_content
 
 
 def getChecksum(blocks):
-  checksum_result = bytearray(1)
-  checksum_result[0] = functools.reduce(lambda a, b: (a + b) % 256, blocks)
-  # for x in blocks:
-  #     lChecksum[0] = (lChecksum[0] + x) % 256
-  return checksum_result[0]
+  return functools.reduce(lambda a, b: (a + b) % 256, blocks)
 
 
 def unichar(i):
@@ -223,8 +172,8 @@ def reset_device(port):
   # Put device into reset state
   port.rts = True
   port.dtr = True
-  # Hold in reset state for 0.5 seconds
-  time.sleep(0.1)
+  # Hold in reset state for 50 milliseconds
+  time.sleep(0.05)
   # Clear all port buffers
   port.reset_input_buffer()
   port.reset_output_buffer()
@@ -234,15 +183,18 @@ def reset_device(port):
   port.dtr = False
 
 
-def port_read(number_of_bytes):
+def port_read(port, number_of_bytes):
   return bytearray(port.read(number_of_bytes))
 
 
-def port_read_byte():
-  return bytearray(port.read(1))[0]
+def port_read_byte(port):
+  try:
+    return bytearray(port.read(1))[0]
+  except IndexError:
+    return False
 
 
-def port_write_and_verify(payload, error_message="", debug_message=""):
+def port_write_and_verify(port, payload, error_message="", debug_message=""):
   bytes_sent = port.write(bytearray(payload))
   if bytes_sent != len(payload):
     logging.error(error_message)
@@ -258,161 +210,248 @@ def proress_bar(bar_length, current_block, total_blocks):
 
   percents = round(100.0 * (current_block + 1) / float(total_blocks), 1)
 
-  bar = ' ' * (filled_len - 1) + unichar(0x15E7) + unichar(0x2219) * (bar_len - filled_len)
+  bar = ' ' * (filled_len - 1)
+  bar = bar + unichar(0x15E7)
+  bar = bar + unichar(0x2219) * (bar_len - filled_len)
 
-  suffix = "Block # {0}/{1} flashed!".format(current_block + 1, int(total_blocks))
+  suffix = "Block # {0}/{1} flashed!".format(current_block + 1,
+                                             int(total_blocks))
 
-  sys.stdout.write('[%s] %s%% %s  ... %s\r' % (
-    bar, percents,
-    unichar(selected_animation[
-      current_block % len(selected_animation)]),
-    suffix))
+  sys.stdout.write(
+      '[%s] %s%% %s  ... %s\r' %
+      (bar, percents,
+       unichar(selected_animation[current_block % len(selected_animation)]),
+       suffix))
 
   sys.stdout.flush()
 
 
-def Hyperload(hexfile, port, clockspeed, baud, selected_animation):
-  # Convert hex file to binary
-  binArray = IntelHex(hexfile).tobinarray()
-  # Reset device
-  reset_device(port)
-  # Read first byte from bootloader serial port
-  if port_read_byte() == BYTE_REFERENCE[0]:
+class HyperloadStates:
+  FindPorts = 1
+  FlashRequest = 2
+  SetBaudRates = 3
+  GetSystemInfo = 4
+  PrepareBinaryForFlashing = 5
+  TransmitApplicationToBoard = 6
+  DetermineIfFlashWasSuccessful = 7
+  BailOut = 8
 
-    port_write_and_verify([BYTE_REFERENCE[1]])
 
-    logging.debug("Initial Handshake Initiated! - Received ")
+board_parameters = None
 
-    sj2_device_discovered = port_read_byte()
-    if sj2_device_discovered == BYTE_REFERENCE[2]:
-      logging.debug("Received " + (str)(repr(sj2_device_discovered)) +
-              ", Sending Control Word..")
 
-      lControlWordInteger = int(getControlWord(baud, clockspeed))
-      logging.debug(type(lControlWordInteger))
-      lControlWordPacked = struct.pack('<i', lControlWordInteger)
-      lControlWordPacked = bytearray(lControlWordPacked)
+class dotdict(dict):
+  """dot.notation access to dictionary attributes"""
+  __getattr__ = dict.get
+  __setattr__ = dict.__setitem__
+  __delattr__ = dict.__delitem__
 
-      if port_write_and_verify(lControlWordPacked, "Error - Sending control word failed", "Sending Control Word Successful!"):
-        ackknowledge_byte = port_read_byte()
 
-        if ackknowledge_byte != lControlWordPacked[0]:
-          logging.debug(lControlWordPacked[0])
-          logging.debug(ackknowledge_byte)
-          logging.error("Error - Failed to receive Control Word Ack")
+def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
+  with open(binary_file_path, mode='rb') as file:
+    application_binary = file.read()
+  # Initialize HyperloadStates variable
+  state = HyperloadStates.FindPorts
+  port = None
+  while True:
+    if state == HyperloadStates.FindPorts:
+      if device:
+        list_of_serial_devices = [
+            dotdict({
+                "device": device,
+                "description": "USER SUPPLIED PORT"
+            })
+        ]
+      else:
+        list_of_serial_devices = list(port_list.comports())
+      # Find all serial ports and attempt to reset and connect to them
+      for port_info in list_of_serial_devices:
+        try:
+          try:
+            logging.debug(port_info.device)
+            logging.debug(port_info.description)
+            VALID_SERIAL_PORT_DESCRIPTIONS.index(port_info.description)
+          except ValueError:
+            continue
+          port = serial.Serial(
+              port=port_info.device,
+              baudrate=INITIAL_DEVICE_BAUD,
+              parity=serial.PARITY_NONE,
+              stopbits=serial.STOPBITS_ONE,
+              bytesize=serial.EIGHTBITS,
+              timeout=3)
+
+          # Reset the device.
+          logging.info("Resetting Device: %s - %s" % (port_info.device,
+                                                      port_info.description))
+          reset_device(port)
+          # Check if device emits a Hyperload signature after reset
+          logging.info("Querying device: %s" % port_info.device)
+          hyperload_signature = port_read_byte(port)
+          logging.info("hyperload_signature: %d" % hyperload_signature)
+          # If it does, immediately break the loop. This will stop at the first
+          # device with a hyperload response
+          if hyperload_signature == HANDSHAKE_SEQUENCE[0]:
+            logging.info("Found Hyperload Device %s", port_info.device)
+            state = HyperloadStates.FlashRequest
+            break
+          else:
+            port.close()
+        # Skip any devices that result in a serial exception.
+        # This is mostly  meant for users of WSL, where /dev/ttySx serial
+        # devices that are not backed by a COM port will throw an exception
+        # when attempting to open them.
+        except serial.serialutil.SerialException:
+          logging.debug("Exception on port %s, desc: %s" %
+                        (port_info.name, port_info.description))
+          continue
+      # If the state hasn't changed then none of the ports found emitted a
+      # Hyperload Signature, thus we should bail out.
+      if state == HyperloadStates.FindPorts:
+        logging.error("Couldn't Find any Hyperload Devices")
+        state = HyperloadStates.BailOut
+
+    if state == HyperloadStates.FlashRequest:
+      port_write_and_verify(port, [HANDSHAKE_SEQUENCE[1]],
+                            "Failed to send Hyperload flash request",
+                            "Sending Request to flash!")
+
+      sj2_device_discovered = port_read_byte(port)
+      if sj2_device_discovered == HANDSHAKE_SEQUENCE[2]:
+        logging.debug("Received " + (str)(repr(sj2_device_discovered)) +
+                      ", Sending Control Word..")
+        state = HyperloadStates.SetBaudRates
+
+    if state == HyperloadStates.SetBaudRates:
+      baud_rate_control_integer = int(getControlWord(baud, clockspeed))
+      logging.debug(type(baud_rate_control_integer))
+
+      control_word = bytearray(struct.pack('<i', baud_rate_control_integer))
+
+      port_write_and_verify(port, control_word, "Sending control word failed",
+                            "Sending Control Word Successful!")
+
+      ackknowledge_byte = port_read_byte(port)
+
+      if ackknowledge_byte != control_word[0]:
+        logging.debug(control_word[0])
+        logging.debug(ackknowledge_byte)
+        logging.error("Failed to receive Control Word Ack")
+        state = HyperloadStates.BailOut
+      else:
+        logging.debug("Ack from Hyperload received!")
+        port.baudrate = baud
+        state = HyperloadStates.GetSystemInfo
+
+    if state == HyperloadStates.GetSystemInfo:
+      # Read the CPU Desc String
+      start_of_cpu_description = port_read_byte(port)
+      if chr(start_of_cpu_description) != SPECIAL_CHAR['Dollar']:
+        logging.error("Failed to read CPU Description String")
+        state = HyperloadStates.BailOut
+      else:
+        logging.debug("Reading CPU Desc String...")
+
+        board_description = SPECIAL_CHAR['Dollar'] + port.read_until(b'\n')
+        logging.debug("CPU Description String = %s", board_description)
+
+        board_parameters = getBoardParameters(board_description)
+
+        # Receive OK from Hyperload
+        if chr(port_read_byte(port)) != SPECIAL_CHAR['OK']:
+          logging.error("Failed to Receive OK")
+          state = HyperloadStates.BailOut
         else:
-          logging.debug("Ack from Hyperload received!")
+          logging.debug("OK Received! Sending Block")
+          state = HyperloadStates.PrepareBinaryForFlashing
 
-          if baud != INITIAL_DEVICE_BAUD:
-            # Switch to new BaudRate here.
-            logging.debug(
-              "Requested Baud rate different from Default. Changing Baud rate.."
-            )
-            port.baudrate = baud
-          else:
-            logging.debug("Baud rate same as Default")
+    if state == HyperloadStates.PrepareBinaryForFlashing:
+      # Sending Blocks of Binary File
+      total_blocks = (
+          len(application_binary) * 1.0 / int(board_parameters['BlockSize']))
+      logging.debug("Total Blocks = %f", total_blocks)
 
-          # Read the CPU Desc String
-          start_of_cpu_description = port_read_byte()
-          if chr(start_of_cpu_description) != SPECIAL_CHAR['Dollar']:
-            logging.error("Failed to read CPU Description String")
-          else:
-            logging.debug("Reading CPU Desc String..")
+      paddingCount = len(application_binary) - (
+          (len(application_binary)) % int(board_parameters['BlockSize']))
+      logging.debug("Total Padding Count = %d", paddingCount)
 
-            board_description = SPECIAL_CHAR['Dollar'] + port.read_until(b'\n')
-            logging.debug("CPU Description String = %s", board_description)
+      total_blocks = math.ceil(total_blocks)
+      logging.info("Total # of Blocks to be Flashed = %d", total_blocks)
 
-            boardParameters = getBoardParameters(board_description)
+      # Pad 0's to application_binary if required.
+      application_binary = bytearray(application_binary)
+      application_binary += (b'\x00' * paddingCount)
+      state = HyperloadStates.TransmitApplicationToBoard
 
-            # Receive OK from Hyperload
-            if chr(port_read_byte()) != SPECIAL_CHAR['OK']:
-              logging.error("Error - Failed to Receive OK")
-            else:
-              logging.debug("OK Received! Sending Block")
+    if state == HyperloadStates.TransmitApplicationToBoard:
+      current_block = 0
 
-            # Send Dummy Blocks -
-            # Update : We can send the actual blocks itself.
+      while current_block < total_blocks:
+        # Send current block number to Hyperload
+        port_write_and_verify(port, struct.pack('>H', current_block),
+                              "Error in Sending BlockCount")
 
-            # Sending Blocks of Binary File
-            totalBlocks = (len(binArray) * 1.0 / int(
-                boardParameters['BlockSize']))
-            logging.debug("Total Blocks = %f", totalBlocks)
+        logging.debug("Number of Blocks = %d", current_block)
 
-            paddingCount = len(binArray) - ((len(binArray)) % int(
-                boardParameters['BlockSize']))
-            logging.debug("Total Padding Count = %d", paddingCount)
+        block_content = getPageContent(application_binary, current_block,
+                                       int(board_parameters['BlockSize']))
 
-            totalBlocks = math.ceil(totalBlocks)
-            logging.info("Total # of Blocks to be Flashed = %d",
-                          totalBlocks)
+        port_write_and_verify(port, block_content,
+                              "Failed to sending Data Block Content")
 
-            # Pad 0's to binArray if required.
-            binArray = bytearray(binArray)
-            binArray += (b'\x00' * paddingCount)
+        logging.debug("Size of Block Written = %d", len(block_content))
 
-            blockCount = 0
+        checksum = getChecksum(block_content)
+        logging.debug("Checksum = %d [0x%x]", checksum, checksum)
 
-            while blockCount < totalBlocks:
+        port_write_and_verify(port, [checksum],
+                              "Failed to send Entire Data Block")
 
-              blockCountPacked = struct.pack('<H', blockCount)
+        if chr(port_read_byte(port)) != SPECIAL_CHAR['OK']:
+          logging.error(
+              "Failed to Receive Ack.. Retrying #%d\n" % int(current_block))
+        else:
+          proress_bar(25, current_block, total_blocks)
+          current_block = current_block + 1
 
-              port_write_and_verify([blockCountPacked[1]], "Error in Sending BlockCountLowAddr")
+      if current_block != total_blocks:
+        logging.error("Not all blocks were flashed")
+        logging.error("Total = " + str(total_blocks))
+        logging.error("# of Blocks Flashed = " + str(current_block))
+        state = HyperloadStates.BailOut
+      else:
+        state = HyperloadStates.DetermineIfFlashWasSuccessful
 
-              port_write_and_verify([blockCountPacked[0]], "Error in Sending BlockCountHiAddr")
+    if state == HyperloadStates.DetermineIfFlashWasSuccessful:
+      end_transfer = bytearray([0xFF, 0xFF])
+      port_write_and_verify(port, end_transfer,
+                            "Could not send end of transfer")
+      final_acknowledge = port_read_byte(port)
 
-              logging.debug("BlockCounts = %d", blockCount)
+      if chr(final_acknowledge) != SPECIAL_CHAR['STAR']:
+        logging.debug(final_acknowledge)
+        logging.error("Final Ack Not Received")
+      else:
+        port.baudrate = INITIAL_DEVICE_BAUD
+        logging.debug("Received Ack")
+        logging.info("\n\nFlashing Successful!")
 
-              blockContent = getPageContent(binArray, blockCount,
-                int(boardParameters['BlockSize']))
+      break
 
-              port_write_and_verify(blockContent, "Error - Failed to sending Data Block Content")
+    if state == HyperloadStates.BailOut:
+      logging.error("Bailing out of Hyperload")
+      break
 
-              logging.debug("Size of Block Written = %d", len(blockContent))
-
-              checksum = getChecksum(blockContent)
-              logging.debug("Checksum = %d [0x%x]", checksum, checksum)
-
-              port_write_and_verify([checksum], "Error - Failed to send Entire Data Block")
-
-              if chr(port_read_byte()) != SPECIAL_CHAR['OK']:
-                logging.error(
-                  "Failed to Receive Ack.. Retrying #%d\n" % int(blockCount))
-              else:
-                proress_bar(25, blockCount, totalBlocks)
-                blockCount = blockCount + 1
-
-            if blockCount != totalBlocks:
-              logging.error("Error - All Blocks not Flashed")
-              logging.error("Total = " + str(totalBlocks))
-              logging.error("# of Blocks Flashed = " +
-                      str(blockCount))
-            else:
-              logging.info("\n\n")
-              endTxPacked = bytearray(2)
-              endTxPacked[0] = 0xFF
-              endTxPacked[1] = 0xFF
-
-              port_write_and_verify(endTxPacked, "Error in Sending End Of Transaction Signal")
-
-              final_acknowledge = port_read_byte()
-
-              if chr(final_acknowledge) != SPECIAL_CHAR['STAR']:
-                logging.debug(final_acknowledge)
-                logging.error("Error - Final Ack Not Received")
-              else:
-                logging.debug("Received Ack")
-                logging.info("\n\nFlashing Successful!")
-
-  port.baudrate = INITIAL_DEVICE_BAUD
-
-  port.close()
+  if port:
+    port.baudrate = INITIAL_DEVICE_BAUD
+    port.close()
 
 
 ### Main Program ###
 if __name__ == "__main__":
   args = parser.parse_args()
 
-  hex_path_length = (len(args.hexfile) + 20)
+  hex_path_length = (len(args.binary) + 20)
   single_dashes = str('-' * hex_path_length)
 
   selected_animation = ANIMATIONS[args.animation]
@@ -425,16 +464,8 @@ if __name__ == "__main__":
   print('#######################')
 
   print(single_dashes)
-  print('Hex File Path = "' + args.hexfile + '"')
+  print('Hex File Path = "' + args.binary + '"')
   print(single_dashes)
 
-  port = serial.Serial(
-    port=args.device,
-    baudrate=INITIAL_DEVICE_BAUD,
-    parity=serial.PARITY_NONE,
-    stopbits=serial.STOPBITS_ONE,
-    bytesize=serial.EIGHTBITS,
-    timeout=10)
-
-  Hyperload(args.hexfile, port, args.clockspeed, args.baud,
-        selected_animation)
+  Hyperload2(args.binary, args.clockspeed, args.baud, selected_animation,
+             args.device)
