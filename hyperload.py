@@ -170,16 +170,21 @@ def unichar(i):
 
 def reset_device(port):
   # Put device into reset state
-  port.rts = True
+  port.rts = False
   port.dtr = True
-  # Hold in reset state for 50 milliseconds
-  time.sleep(0.05)
+  # Hold in reset state for 10 milliseconds
+  time.sleep(0.01)
+  port.dtr = False
+  # Hold in reset state for 10 milliseconds
+  time.sleep(0.01)
+  port.dtr = True
+  # Hold in reset state for 10 milliseconds
+  time.sleep(0.01)
   # Clear all port buffers
   port.reset_input_buffer()
   port.reset_output_buffer()
   port.flush()
   # Remove reset signal to allow device to boot up
-  port.rts = False
   port.dtr = False
 
 
@@ -247,17 +252,18 @@ class dotdict(dict):
   __delattr__ = dict.__delitem__
 
 def properly_close_port(port):
-  port.baudrate = INITIAL_DEVICE_BAUD
-  port.flush()
-  port.reset_input_buffer()
-  port.reset_output_buffer()
-  # This is a workaround for a problem with serial terminals after the usage
-  # of pySerial where the vmin (or min) serial flag is set to 0. This causes
-  # chrome.serial to throw an exception and lose control over the serial
-  # device.
-  port.inter_byte_timeout = 1
-  port._reconfigure_port(force_update=True)
-  port.close()
+  if port.is_open:
+    port.baudrate = INITIAL_DEVICE_BAUD
+    port.flush()
+    port.reset_input_buffer()
+    port.reset_output_buffer()
+    # This is a workaround for a problem with serial terminals after the usage
+    # of pySerial where the vmin (or min) serial flag is set to 0. This causes
+    # chrome.serial to throw an exception and lose control over the serial
+    # device.
+    port.inter_byte_timeout = 1
+    port._reconfigure_port(force_update=True)
+    port.close()
 
 def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
   with open(binary_file_path, mode='rb') as file:
@@ -291,8 +297,7 @@ def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
               parity=serial.PARITY_NONE,
               stopbits=serial.STOPBITS_ONE,
               bytesize=serial.EIGHTBITS,
-              timeout=None)
-          time.sleep(1)
+              timeout=1)
           # Reset the device.
           logging.info("Resetting Device: %s - %s" % (port_info.device,
                                                       port_info.description))
