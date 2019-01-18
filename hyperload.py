@@ -204,7 +204,7 @@ def port_write_and_verify(port, payload, error_message="", debug_message=""):
     return True
 
 
-def proress_bar(bar_length, current_block, total_blocks):
+def progress_bar(bar_length, current_block, total_blocks):
   bar_len = bar_length
   filled_len = int(round(bar_len * (current_block + 1) / float(total_blocks)))
 
@@ -246,6 +246,18 @@ class dotdict(dict):
   __setattr__ = dict.__setitem__
   __delattr__ = dict.__delitem__
 
+def properly_close_port(port):
+  port.baudrate = INITIAL_DEVICE_BAUD
+  port.flush()
+  port.reset_input_buffer()
+  port.reset_output_buffer()
+  # This is a workaround for a problem with serial terminals after the usage
+  # of pySerial where the vmin (or min) serial flag is set to 0. This causes
+  # chrome.serial to throw an exception and lose control over the serial
+  # device.
+  port.inter_byte_timeout = 1
+  port._reconfigure_port(force_update=True)
+  port.close()
 
 def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
   with open(binary_file_path, mode='rb') as file:
@@ -279,8 +291,8 @@ def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
               parity=serial.PARITY_NONE,
               stopbits=serial.STOPBITS_ONE,
               bytesize=serial.EIGHTBITS,
-              timeout=3)
-
+              timeout=None)
+          time.sleep(1)
           # Reset the device.
           logging.info("Resetting Device: %s - %s" % (port_info.device,
                                                       port_info.description))
@@ -296,7 +308,7 @@ def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
             state = HyperloadStates.FlashRequest
             break
           else:
-            port.close()
+            properly_close_port(port)
         # Skip any devices that result in a serial exception.
         # This is mostly  meant for users of WSL, where /dev/ttySx serial
         # devices that are not backed by a COM port will throw an exception
@@ -411,7 +423,7 @@ def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
           logging.error(
               "Failed to Receive Ack.. Retrying #%d\n" % int(current_block))
         else:
-          proress_bar(25, current_block, total_blocks)
+          progress_bar(25, current_block, total_blocks)
           current_block = current_block + 1
 
       if current_block != total_blocks:
@@ -434,8 +446,8 @@ def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
       else:
         port.baudrate = INITIAL_DEVICE_BAUD
         logging.debug("Received Ack")
-        logging.info("\n\nFlashing Successful!")
-
+        print("\n\n")
+        logging.info("Flashing Successful!")
       break
 
     if state == HyperloadStates.BailOut:
@@ -443,8 +455,8 @@ def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
       break
 
   if port:
-    port.baudrate = INITIAL_DEVICE_BAUD
-    port.close()
+    logging.info("Closing Serial Port")
+    properly_close_port(port)
 
 
 ### Main Program ###
