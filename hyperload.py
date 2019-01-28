@@ -180,12 +180,13 @@ def reset_device(port):
   port.dtr = True
   # Hold in reset state for 10 milliseconds
   time.sleep(0.01)
+  # Remove reset signal to allow device to boot up
+  port.dtr = False
   # Clear all port buffers
   port.reset_input_buffer()
   port.reset_output_buffer()
   port.flush()
-  # Remove reset signal to allow device to boot up
-  port.dtr = False
+  time.sleep(0.01)
 
 
 def port_read(port, number_of_bytes):
@@ -297,7 +298,7 @@ def Hyperload2(binary_file_path, clockspeed, baud, selected_animation, device):
               parity=serial.PARITY_NONE,
               stopbits=serial.STOPBITS_ONE,
               bytesize=serial.EIGHTBITS,
-              timeout=1)
+              timeout=3)
           # Reset the device.
           logging.info("Resetting Device: %s - %s" % (port_info.device,
                                                       port_info.description))
